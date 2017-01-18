@@ -83,18 +83,6 @@ namespace postgres_drivers {
         }
 
         /**
-         * create a prepared statement
-         */
-        void create_prepared_statement(const char* name, std::string query, int params_count) {
-            PGresult *result = PQprepare(m_database_connection, name, query.c_str(), params_count, NULL);
-            if (PQresultStatus(result) != PGRES_COMMAND_OK) {
-                PQclear(result);
-                throw std::runtime_error((boost::format("%1% failed: %2%\n") % query % PQerrorMessage(m_database_connection)).str());
-            }
-            PQclear(result);
-        }
-
-        /**
          * get ID of geometry column, first column is 0
          */
         int get_geometry_column_id();
@@ -141,16 +129,33 @@ namespace postgres_drivers {
             }
         }
 
+        /**
+         * create a prepared statement
+         */
+        void create_prepared_statement(const char* name, std::string query, int params_count) {
+            PGresult *result = PQprepare(m_database_connection, name, query.c_str(), params_count, NULL);
+            if (PQresultStatus(result) != PGRES_COMMAND_OK) {
+                PQclear(result);
+                throw std::runtime_error((boost::format("%1% failed: %2%\n") % query % PQerrorMessage(m_database_connection)).str());
+            }
+            PQclear(result);
+        }
 
+        /**
+         * \brief get column definitions
+         */
         Columns& get_columns() {
             return m_columns;
         }
 
         /**
-         * escape a string which should be inserted into a hstore column
+         * \brief Add a key or value of an OSM tag to a hstore column and escape forbidden characters before appending.
          *
-         * @param source string which should be escaped
-         * @param destination string where the escaped string has to be appended (later usually used for INSERT query)
+         * This method is taken from osm2pgsql/table.cpp, void table_t::escape4hstore(const char *src, string& dst).
+         * Use it not only to escape forbidden characters but also to prevent SQL injections.
+         *
+         * \param source C string which to be escaped and appended
+         * \param destination string where the escaped string has to be appended (later usually used for INSERT query or COPY)
          */
         static void escape4hstore(const char* source, std::string& destination) {
             /**
@@ -183,10 +188,13 @@ namespace postgres_drivers {
         }
 
         /**
-         * escape a string which should be inserted into a non-hstore column which is inserted into the database using SQL COPY
+         * \brief Escape a string from an insecure source and append it to another string.
          *
-         * @param source string which should be escaped
-         * @param destination string where the escaped string has to be appended (later usually used for INSERT query)
+         * Use this method if you want to insert a string into the database but have to escape certain characters to
+         * prevent SQL injections.
+         *
+         * \param source C string which should be escaped
+         * \param destination string where the escaped string will be appended
          */
         static void escape(const char* source, std::string& destination) {
             /**
@@ -223,14 +231,13 @@ namespace postgres_drivers {
         }
 
         /**
-         * check if the object mentioned by this query exists and, if yes, delete it.
+         * \brief delete (try it) all objects with the given OSM object IDs
          *
-         * @param query SQL query
-         */
-        void delete_if_existing(const char* database_query);
-
-        /**
-         * delete (try it) all objects with the given OSM object IDs
+         * This method will execute a `DELETE` command for each entry in this list.
+         *
+         * \param list list of OSM object IDs to be deleted
+         *
+         * \throws std::runtime_error
          */
         void delete_from_list(std::vector<osmium::object_id_type>& list) {
             assert(!m_copy_mode);
@@ -245,7 +252,13 @@ namespace postgres_drivers {
         }
 
         /**
-         * delete an object with given ID
+         * \brief delete object with given ID
+         *
+         * This method executes the prepared statement `delete_statement`.
+         *
+         * \param id ID of the object
+         *
+         * \throws std::runtime_error
          */
         void delete_object(const osmium::object_id_type id) {
             assert(!m_copy_mode);
@@ -262,7 +275,13 @@ namespace postgres_drivers {
         }
 
         /**
-         * send a line to the database (it will get it from STDIN) during copy mode
+         * \brief Send a line to the database (it will get it from STDIN) during copy mode.
+         *
+         * This method asserts that the database connection is in COPY mode when this method is called.
+         *
+         * \param line line to send; you may send multiple lines at once as one string, separated by \\n.
+         *
+         * \throws std::runtime_error
          */
         void send_line(const std::string& line) {
             if (!m_database_connection) {
@@ -279,13 +298,19 @@ namespace postgres_drivers {
             }
         }
 
-
+        /**
+         * \brief get name of the database table
+         */
         std::string& get_name() {
             return m_name;
         }
 
         /**
-         * start COPY mode
+         * \brief start COPY mode
+         *
+         * Additionally, this method sets #m_copy_mode to `true`.
+         *
+         * \throws std::runtime_error
          */
         void start_copy() {
             if (!m_database_connection) {
@@ -310,7 +335,11 @@ namespace postgres_drivers {
         }
 
         /**
-         * stop COPY mode
+         * \brief stop COPY mode
+         *
+         * \throws std::runtime_error
+         *
+         * Additionally, t method sets #m_copy_mode to `false`.
          */
         void end_copy() {
             if (!m_database_connection) {
@@ -329,18 +358,17 @@ namespace postgres_drivers {
         }
 
         /**
-         * get current state of connection
-         * Is it in copy mode or not?
+         * \brief Is the database connection in COPY mode or not?
          */
         bool get_copy() {
             return m_copy_mode;
         }
 
         /**
-         * send BEGIN to table
+         * \brief Send `BEGIN` to table
          *
-         * This method can be called both from inside the class and from outside (if you want to get your changes persistend after
-         * you sent them all to the database.
+         * This method can be called both from inside the class and from outside (if you want to encapsulate all
+         * your commands in a single transaction).
          */
         void send_begin() {
             send_query("BEGIN");
@@ -348,7 +376,7 @@ namespace postgres_drivers {
         }
 
         /*
-         * send COMMIT to table
+         * \brief Send `COMMIT` to table
          *
          * This method is intended to be called from the destructor of this class.
          */
@@ -358,9 +386,11 @@ namespace postgres_drivers {
         }
 
         /**
-         * Send any SQL query.
+         * \brief Send any SQL query.
          *
-         * This query will not return anything, i.e. it is useful for INSERT and DELETE operations.
+         * This query will not return anything, i.e. it is useful for `INSERT` and `DELETE` operations.
+         *
+         * \param query the query
          */
         void send_query(const char* query) {
             if (!m_database_connection) {
@@ -378,7 +408,7 @@ namespace postgres_drivers {
         }
 
         /*
-         * send COMMIT to table and checks if this is currently allowed (i.e. currently not in COPY mode)
+         * \brief Send `COMMIT` to table and checks if this is currently allowed (i.e. currently not in `COPY` mode)
          *
          * This method is intended to be called from outside of this class and therefore contains some additional checks.
          * It will send an additional BEGIN after sending COMMIT.
@@ -392,16 +422,15 @@ namespace postgres_drivers {
         }
 
         /**
-         * get the longitude and latitude of a node
+         * \brief get the longitude and latitude of a node as geos::geom::Coordinate
          *
-         * @param id OSM ID
-         *
-         * @returns unique_ptr to coordinate or empty unique_ptr (equivalent to nullptr if it were a raw pointer) otherwise
+         * \param id OSM ID
+         * \throws std::runtime_error If SQL query execution fails.
+         * \returns unique_ptr to coordinate or empty unique_ptr otherwise
          */
         std::unique_ptr<geos::geom::Coordinate> get_point(const osmium::object_id_type id) {
             assert(m_database_connection);
             assert(!m_copy_mode);
-        //    assert(!m_begin);
             std::unique_ptr<geos::geom::Coordinate> coord;
             char const *paramValues[1];
             char buffer[64];
@@ -414,7 +443,6 @@ namespace postgres_drivers {
                 return coord;
             }
             if (PQntuples(result) == 0) {
-        //        throw std::runtime_error(((boost::format("Node %1% not found. ") % id)).str());
                 PQclear(result);
                 return coord;
             }
@@ -424,11 +452,12 @@ namespace postgres_drivers {
         }
 
         /**
-         * get a way as GEOS LineString
+         * \brief get a way as geos::geom::LineString
          *
-         * @param id OSM ID
-         *
-         * @returns unique_ptr to Geometry or empty unique_ptr otherwise
+         * \param id OSM ID
+         * \param geometry_factory reference to a GeometryFactory to build GEOS geometries
+         * \throws std::runtime_error if query execution fails
+         * \returns unique_ptr to Geometry or empty unique_ptr otherwise
          */
         std::unique_ptr<geos::geom::Geometry> get_linestring(const osmium::object_id_type id, geos::geom::GeometryFactory& geometry_factory) {
             assert(m_database_connection);

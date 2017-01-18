@@ -13,6 +13,12 @@
 
 namespace postgres_drivers {
 
+    /**
+     * \brief Typed enum which defines the geometry type of the table.
+     *
+     * The types are different from simple features because OSM does not
+     * follow OGC Simple Feature Specification. For example, nod
+     */
     enum class TableType : char {
         POINT = 1,
         UNTAGGED_POINT = 2,
@@ -28,15 +34,19 @@ namespace postgres_drivers {
      * \todo remove members which are only neccesary for write access
      */
     struct Config {
+        /// debug mode enabled
         bool m_debug = false;
+        /// name of the database
         std::string m_database_name = "pgimportertest";
+        /// store tags as hstore \unsupported
         bool tags_hstore = true;
+
+        /**
+         * Import metadata of OSM objects into the database.
+         * This increase the size of the database very much.
+         */
         bool metadata = true;
-        bool m_all_geom_indexes = false;
-        bool m_geom_indexes = true;
-        bool m_order_by_geohash = true;
-        bool m_append = false;
-        bool m_id_index = true;
+        /// Import user names in addition to user IDs. Please note that this increases the size of your database by about 100 GB!
         bool m_usernames = true;
     };
 
@@ -45,6 +55,13 @@ namespace postgres_drivers {
 
     using ColumnsIterator = ColumnsVector::iterator;
 
+    /**
+     * \brief This class holds the names and types of the columns of a database table.
+     *
+     * This class implements the iterator pattern. The provided iterator works like an STL iterator.
+     *
+     * \todo Add method which reads additional columns config from file and returns an instance of Columns.
+     */
     class Columns {
     private:
         ColumnsVector m_columns;
@@ -125,24 +142,38 @@ namespace postgres_drivers {
             return m_columns.at(n);
         }
 
+        /**
+         * \brief Get number of columns of this table.
+         */
         int size() {
             return m_columns.size();
         }
 
         /**
-         * returns name of n-th (0 is first) column
+         * \brief Get name of n-th (0 is first) column.
+         *
+         * \param n column index
+         *
+         * \returns column name
          */
         const std::string& column_name_at(size_t n) {
             return m_columns.at(n).first;
         }
 
         /**
-         * returns type of n-th (0 is first) column
+         * \brief Get type of n-th (0 is first) column.
+         *
+         * \param n column index
+         *
+         * \returns column type
          */
         const std::string& column_type_at(size_t n) {
             return m_columns.at(n).second;
         }
 
+        /**
+         * \brief Get geometry type of this table.
+         */
         TableType get_type() {
             return m_type;
         }
