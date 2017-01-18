@@ -27,7 +27,6 @@ namespace postgres_drivers {
      * This class manages connection to a database table. We have one connection per table,
      * therefore this class is called Table, not DBConnection.
      */
-
     class Table {
     protected:
         /**
