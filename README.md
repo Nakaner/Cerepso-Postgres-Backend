@@ -1,8 +1,9 @@
-postgres-drivers
-================
+Cerepso-Postgres-Backend
+========================
 
-postgres-drivers is a header-only C++ 11 library for read-only access to a PostgreSQL database (with PostGIS and hstore).
-It serves as common database driver for both Cerepso and Cerepso2vt.
+Cerepso-Postgres-Backend is the collection of classes used by both [Cerepso](https://github.com/Nakaner/Cerepso) and
+[Cerepso2vt](https://github.com/Nakaner/Cerepso2vt) for database access. It is header-only C++ 11 library for
+read-only access to a PostgreSQL database (with PostGIS and hstore).
 
 Dependencies
 ============
