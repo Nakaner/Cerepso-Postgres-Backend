@@ -110,7 +110,7 @@ namespace postgres_drivers {
         /**
          * constructor for testing, does not establishes database connection
          */
-        Table(Config& config, Columns& columns) :
+        Table(Columns& columns, Config& config) :
                 m_name(""),
                 m_config(config),
                 m_copy_mode(false),
@@ -129,7 +129,11 @@ namespace postgres_drivers {
         }
 
         /**
-         * create a prepared statement
+         * \brief create a prepared statement
+         *
+         * \param name name of the prepared statement
+         * \param query template query of this statement
+         * \param params_count number of argument of this query
          */
         void create_prepared_statement(const char* name, std::string query, int params_count) {
             PGresult *result = PQprepare(m_database_connection, name, query.c_str(), params_count, NULL);
@@ -145,132 +149,6 @@ namespace postgres_drivers {
          */
         Columns& get_columns() {
             return m_columns;
-        }
-
-        /**
-         * \brief Add a key or value of an OSM tag to a hstore column and escape forbidden characters before appending.
-         *
-         * This method is taken from osm2pgsql/table.cpp, void table_t::escape4hstore(const char *src, string& dst).
-         * Use it not only to escape forbidden characters but also to prevent SQL injections.
-         *
-         * \param source C string which to be escaped and appended
-         * \param destination string where the escaped string has to be appended (later usually used for INSERT query or COPY)
-         */
-        static void escape4hstore(const char* source, std::string& destination) {
-            /**
-            * taken from osm2pgsql/table.cpp, void table_t::escape4hstore(const char *src, string& dst)
-            */
-            destination.push_back('"');
-            for (size_t i = 0; i < strlen(source); ++i) {
-                switch (source[i]) {
-                    case '\\':
-                        destination.append("\\\\\\\\");
-                        break;
-                    case '"':
-                        destination.append("\\\\\"");
-                        break;
-                    case '\t':
-                        destination.append("\\\t");
-                        break;
-                    case '\r':
-                        destination.append("\\\r");
-                        break;
-                    case '\n':
-                        destination.append("\\\n");
-                        break;
-                    default:
-                        destination.push_back(source[i]);
-                        break;
-                }
-            }
-            destination.push_back('"');
-        }
-
-        /**
-         * \brief Escape a string from an insecure source and append it to another string.
-         *
-         * Use this method if you want to insert a string into the database but have to escape certain characters to
-         * prevent SQL injections.
-         *
-         * \param source C string which should be escaped
-         * \param destination string where the escaped string will be appended
-         */
-        static void escape(const char* source, std::string& destination) {
-            /**
-            * copied (and modified) from osm2pgsql/pgsql.cpp, void escape(const std::string &src, std::string &dst)
-            */
-            for (size_t i = 0; i < strlen(source); ++i) {
-                switch(source[i]) {
-                    case '\\':
-                        destination.append("\\\\");
-                        break;
-                    case 8:
-                        destination.append("\\\b");
-                        break;
-                    case 12:
-                        destination.append("\\\f");
-                        break;
-                    case '\n':
-                        destination.append("\\\n");
-                        break;
-                    case '\r':
-                        destination.append("\\\r");
-                        break;
-                    case '\t':
-                        destination.append("\\\t");
-                        break;
-                    case 11:
-                        destination.append("\\\v");
-                        break;
-                    default:
-                        destination.push_back(source[i]);
-                        break;
-                }
-            }
-        }
-
-        /**
-         * \brief delete (try it) all objects with the given OSM object IDs
-         *
-         * This method will execute a `DELETE` command for each entry in this list.
-         *
-         * \param list list of OSM object IDs to be deleted
-         *
-         * \throws std::runtime_error
-         */
-        void delete_from_list(std::vector<osmium::object_id_type>& list) {
-            assert(!m_copy_mode);
-            for (osmium::object_id_type id : list) {
-                PGresult *result = PQexec(m_database_connection, (boost::format("DELETE FROM %1% WHERE osm_id = %2%") % m_name % id).str().c_str());
-                if (PQresultStatus(result) != PGRES_COMMAND_OK) {
-                    PQclear(result);
-                    throw std::runtime_error((boost::format("%1% failed: %2%\n") % (boost::format("DELETE FROM %1% WHERE osm_id = %2%") % m_name % id).str().c_str() % PQerrorMessage(m_database_connection)).str());
-                }
-                PQclear(result);
-            }
-        }
-
-        /**
-         * \brief delete object with given ID
-         *
-         * This method executes the prepared statement `delete_statement`.
-         *
-         * \param id ID of the object
-         *
-         * \throws std::runtime_error
-         */
-        void delete_object(const osmium::object_id_type id) {
-            assert(!m_copy_mode);
-            char const *paramValues[1];
-            char buffer[64];
-            sprintf(buffer, "%ld", id);
-            paramValues[0] = buffer;
-            PGresult *result = PQexecPrepared(m_database_connection, "delete_statement", 1, paramValues, nullptr, nullptr, 0);
-            if (PQresultStatus(result) != PGRES_COMMAND_OK) {
-                PQclear(result);
-                throw std::runtime_error((boost::format("Deleting object %1% from %2% failed: %3%\n") % id % m_name % PQresultErrorMessage(result)).str());
-            }
-            PQclear(result);
         }
 
         /**
@@ -418,74 +296,6 @@ namespace postgres_drivers {
             }
             assert(m_begin);
             commit();
-        }
-
-        /**
-         * \brief get the longitude and latitude of a node as geos::geom::Coordinate
-         *
-         * \param id OSM ID
-         * \throws std::runtime_error If SQL query execution fails.
-         * \returns unique_ptr to coordinate or empty unique_ptr otherwise
-         */
-        std::unique_ptr<geos::geom::Coordinate> get_point(const osmium::object_id_type id) {
-            assert(m_database_connection);
-            assert(!m_copy_mode);
-            std::unique_ptr<geos::geom::Coordinate> coord;
-            char const *paramValues[1];
-            char buffer[64];
-            sprintf(buffer, "%ld", id);
-            paramValues[0] = buffer;
-            PGresult *result = PQexecPrepared(m_database_connection, "get_point", 1, paramValues, nullptr, nullptr, 0);
-            if ((PQresultStatus(result) != PGRES_COMMAND_OK) && (PQresultStatus(result) != PGRES_TUPLES_OK)) {
-                throw std::runtime_error((boost::format("Failed: %1%\n") % PQresultErrorMessage(result)).str());
-                PQclear(result);
-                return coord;
-            }
-            if (PQntuples(result) == 0) {
-                PQclear(result);
-                return coord;
-            }
-            coord = std::unique_ptr<geos::geom::Coordinate>(new geos::geom::Coordinate(atof(PQgetvalue(result, 0, 0)), atof(PQgetvalue(result, 0, 1))));
-            PQclear(result);
-            return coord;
-        }
-
-        /**
-         * \brief get a way as geos::geom::LineString
-         *
-         * \param id OSM ID
-         * \param geometry_factory reference to a GeometryFactory to build GEOS geometries
-         * \throws std::runtime_error if query execution fails
-         * \returns unique_ptr to Geometry or empty unique_ptr otherwise
-         */
-        std::unique_ptr<geos::geom::Geometry> get_linestring(const osmium::object_id_type id, geos::geom::GeometryFactory& geometry_factory) {
-            assert(m_database_connection);
-            assert(!m_copy_mode);
-            std::unique_ptr<geos::geom::Geometry> linestring;
-            char const *paramValues[1];
-            char buffer[64];
-            sprintf(buffer, "%ld", id);
-            paramValues[0] = buffer;
-            PGresult *result = PQexecPrepared(m_database_connection, "get_linestring", 1, paramValues, nullptr, nullptr, 0);
-            if ((PQresultStatus(result) != PGRES_COMMAND_OK) && (PQresultStatus(result) != PGRES_TUPLES_OK)) {
-                throw std::runtime_error((boost::format("Failed: %1%\n") % PQresultErrorMessage(result)).str());
-                PQclear(result);
-                return linestring;
-            }
-            if (PQntuples(result) == 0) {
-                PQclear(result);
-                return linestring;
-            }
-            std::stringstream geom_stream;
-            geos::io::WKBReader wkb_reader (geometry_factory);
-            geom_stream.str(PQgetvalue(result, 0, 0));
-            linestring = std::unique_ptr<geos::geom::Geometry>(wkb_reader.readHEX(geom_stream));
-            PQclear(result);
-            if (linestring->getGeometryTypeId() != geos::geom::GeometryTypeId::GEOS_LINESTRING) {
-                // if we got no linestring, we will return a unique_ptr which manages nothing (i.e. nullptr equivalent)
-                linestring.reset();
-            }
-            return linestring;
         }
     };
 
