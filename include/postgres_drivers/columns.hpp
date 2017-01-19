@@ -20,11 +20,17 @@ namespace postgres_drivers {
      * follow OGC Simple Feature Specification. For example, nod
      */
     enum class TableType : char {
+        /// nodes with tags
         POINT = 1,
+        /// nodes without tags
         UNTAGGED_POINT = 2,
+        /// ways
         WAYS_LINEAR = 3,
+        /// ways which are polygons
         WAYS_POLYGON = 4,
+        /// relations which are multipolygons
         RELATION_POLYGON = 5,
+        /// relations
         RELATION_OTHER = 6
     };
 
