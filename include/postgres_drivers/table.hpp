@@ -98,11 +98,13 @@ namespace postgres_drivers {
          * \throws std::runtime_error if check fails
          */
         void check_and_free_result(PGresult* result, ExecStatusType expected_status, const std::string& query) {
+            std::string message;
             if (PQresultStatus(result) != expected_status) {
+                message = PQerrorMessage(m_database_connection);
                 PQclear(result);
             }
-            if (!result || PQresultStatus(result) != PGRES_COMMAND_OK) {
-                throw std::runtime_error((boost::format("%1% failed: %2%\n") % query % PQerrorMessage(m_database_connection)).str());
+            if (!result || PQresultStatus(result) != expected_status) {
+                throw std::runtime_error((boost::format("%1% failed: %2%\n") % query % message).str());
             }
             PQclear(result);
         }
