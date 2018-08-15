@@ -86,6 +86,27 @@ namespace postgres_drivers {
          */
         int get_geometry_column_id();
 
+        /**
+         * For the status of the query result and throw an exception if necessary.
+         *
+         * This method also calls `PQclear(result)`.
+         *
+         * \param result query result to be checked and freed
+         * \param expected_status value to be returned by `PQresultStatus(result)`
+         * \param query SQL query or COPY command
+         *
+         * \throws std::runtime_error if check fails
+         */
+        void check_and_free_result(PGresult* result, ExecStatusType expected_status, const std::string& query) {
+            if (PQresultStatus(result) != expected_status) {
+                PQclear(result);
+            }
+            if (!result || PQresultStatus(result) != PGRES_COMMAND_OK) {
+                throw std::runtime_error((boost::format("%1% failed: %2%\n") % query % PQerrorMessage(m_database_connection)).str());
+            }
+            PQclear(result);
+        }
+
     public:
         Table() = delete;
 
@@ -203,11 +224,7 @@ namespace postgres_drivers {
             copy_command.pop_back();
             copy_command.append(") FROM STDIN");
             PGresult *result = PQexec(m_database_connection, copy_command.c_str());
-            if (PQresultStatus(result) != PGRES_COPY_IN) {
-                PQclear(result);
-                throw std::runtime_error((boost::format("%1% failed: %2%\n") % copy_command % PQerrorMessage(m_database_connection)).str());
-            }
-            PQclear(result);
+            check_and_free_result(result, PGRES_COPY_IN, copy_command);
             m_copy_mode = true;
         }
 
@@ -277,11 +294,7 @@ namespace postgres_drivers {
                 throw std::runtime_error((boost::format("%1% failed: You are in COPY mode.\n") % query % PQerrorMessage(m_database_connection)).str());
             }
             PGresult *result = PQexec(m_database_connection, query);
-            if (PQresultStatus(result) != PGRES_COMMAND_OK) {
-                PQclear(result);
-                throw std::runtime_error((boost::format("%1% failed: %2%\n") % query % PQerrorMessage(m_database_connection)).str());
-            }
-            PQclear(result);
+            check_and_free_result(result, PGRES_COMMAND_OK, query);
         }
 
         /*
