@@ -33,7 +33,9 @@ namespace postgres_drivers {
         /// relations which are multipolygons
         RELATION_POLYGON = 5,
         /// relations
-        RELATION_OTHER = 6
+        RELATION_OTHER = 6,
+        /// areas (ways and multipolygon/boundary relations)
+        AREA = 7
     };
 
     /**
@@ -54,6 +56,11 @@ namespace postgres_drivers {
          * This increase the size of the database a lot.
          */
         osmium::metadata_options metadata = osmium::metadata_options{"none"};
+
+        /**
+         * Create tables and columsn necessary for updates.
+         */
+        bool updateable = true;
     };
 
     typedef std::pair<const std::string, const std::string> Column;
@@ -107,21 +114,32 @@ namespace postgres_drivers {
                 break;
             case TableType::WAYS_LINEAR :
                 m_columns.push_back(std::make_pair("geom", "geometry(LineString,4326)"));
-                m_columns.push_back(std::make_pair("way_nodes", "bigint[]"));
+                if (config.updateable) {
+                    m_columns.push_back(std::make_pair("way_nodes", "bigint[]"));
+                }
                 break;
             case TableType::WAYS_POLYGON :
                 m_columns.push_back(std::make_pair("geom", "geometry(MultiPolygon,4326)"));
-                m_columns.push_back(std::make_pair("way_nodes", "bigint[]"));
+                if (config.updateable) {
+                    m_columns.push_back(std::make_pair("way_nodes", "bigint[]"));
+                }
                 break;
             case TableType::RELATION_POLYGON :
                 m_columns.push_back(std::make_pair("geom", "geometry(MultiPolygon,4326)"));
-        //        m_columns.push_back(std::make_pair("member_ids", "bigint[]"));
-        //        m_columns.push_back(std::make_pair("member_types", "char[]"));
+//                if (config.updateable) {
+//                    m_columns.push_back(std::make_pair("member_ids", "bigint[]"));
+//                    m_columns.push_back(std::make_pair("member_types", "char[]"));
+//                }
                 break;
             case TableType::RELATION_OTHER :
-                m_columns.push_back(std::make_pair("geom", "geometry(GeometryCollection,4326)"));
+                m_columns.push_back(std::make_pair("geom_points", "geometry(MultiPoint,4326)"));
+                m_columns.push_back(std::make_pair("geom_lines", "geometry(MultiLineString,4326)"));
                 m_columns.push_back(std::make_pair("member_ids", "bigint[]"));
                 m_columns.push_back(std::make_pair("member_types", "char[]"));
+                m_columns.push_back(std::make_pair("member_roles", "text[]"));
+                break;
+            case TableType::AREA :
+                m_columns.push_back(std::make_pair("geom", "geometry(MultiPolygon,4326)"));
             }
         }
 
