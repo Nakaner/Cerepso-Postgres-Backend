@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include <osmium/osm/metadata_options.hpp>
+
 namespace postgres_drivers {
 
     /**
@@ -49,11 +51,9 @@ namespace postgres_drivers {
 
         /**
          * Import metadata of OSM objects into the database.
-         * This increase the size of the database very much.
+         * This increase the size of the database a lot.
          */
-        bool metadata = true;
-        /// Import user names in addition to user IDs. Please note that this increases the size of your database by about 100 GB!
-        bool m_usernames = true;
+        osmium::metadata_options metadata = osmium::metadata_options{"none"};
     };
 
     typedef std::pair<const std::string, const std::string> Column;
@@ -83,13 +83,19 @@ namespace postgres_drivers {
             if (config.tags_hstore && type != TableType::UNTAGGED_POINT) {
                 m_columns.push_back(std::make_pair("tags", "hstore"));
             }
-            if (config.metadata) {
-                if (config.m_usernames) {
-                    m_columns.push_back(std::make_pair("osm_user", "text"));
-                }
+            if (config.metadata.user()) {
+                m_columns.push_back(std::make_pair("osm_user", "text"));
+            }
+            if (config.metadata.uid()) {
                 m_columns.push_back(std::make_pair("osm_uid", "bigint"));
+            }
+            if (config.metadata.version()) {
                 m_columns.push_back(std::make_pair("osm_version", "integer"));
+            }
+            if (config.metadata.timestamp()) {
                 m_columns.push_back(std::make_pair("osm_lastmodified", "char(23)"));
+            }
+            if (config.metadata.changeset()) {
                 m_columns.push_back(std::make_pair("osm_changeset", "bigint"));
             }
             switch (type) {
