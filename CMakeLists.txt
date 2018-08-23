@@ -18,7 +18,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 #
 #-----------------------------------------------------------------------------
 
-project(postgres-drivers)
+project(Cerepso-Postgres-Backend)
 
 set(AUTHOR "Michael Reichert <nakaner@gmx.net>")
 

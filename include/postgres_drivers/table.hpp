@@ -15,7 +15,6 @@
 #include <osmium/osm/types.hpp>
 #include <geos/geom/Point.h>
 #include <string.h>
-#include <sstream>
 #include <boost/iostreams/device/file.hpp>
 #include <boost/iostreams/stream.hpp>
 #include <geos/io/WKBReader.h>
@@ -49,7 +48,7 @@ namespace postgres_drivers {
          */
         bool m_begin = false;
 
-        Columns& m_columns;
+        Columns m_columns;
 
         /**
          * connection to database
@@ -116,7 +115,7 @@ namespace postgres_drivers {
          * constructor for production, establishes database connection, read-only access to the database
          */
         /// \todo replace const char* by std::string&
-        Table(const char* table_name, Config& config, Columns& columns) :
+        Table(const char* table_name, Config& config, Columns columns) :
                 m_name(table_name),
                 m_config(config),
                 m_copy_mode(false),
@@ -170,7 +169,7 @@ namespace postgres_drivers {
         /**
          * \brief get column definitions
          */
-        Columns& get_columns() {
+        const Columns& get_columns() const {
             return m_columns;
         }
 
@@ -220,8 +219,9 @@ namespace postgres_drivers {
             copy_command.append(m_name);
             copy_command.append(" (");
             for (ColumnsIterator it = m_columns.begin(); it != m_columns.end(); it++) {
-                copy_command.append(it->first);
-                copy_command.push_back(',');
+                copy_command.push_back('"');
+                copy_command.append(it->name());
+                copy_command.append("\",");
             }
             copy_command.pop_back();
             copy_command.append(") FROM STDIN");

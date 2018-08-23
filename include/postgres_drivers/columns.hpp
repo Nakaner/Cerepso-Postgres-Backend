@@ -12,6 +12,9 @@
 #include <vector>
 
 #include <osmium/osm/metadata_options.hpp>
+#include <osmium/tags/tags_filter.hpp>
+
+#include "config.hpp"
 
 namespace postgres_drivers {
 
@@ -38,35 +41,181 @@ namespace postgres_drivers {
         AREA = 7
     };
 
-    /**
-     * program configuration
-     *
-     * \todo remove members which are only neccesary for write access
-     */
-    struct Config {
-        /// debug mode enabled
-        bool m_debug = false;
-        /// name of the database
-        std::string m_database_name = "pgimportertest";
-        /// store tags as hstore \unsupported
-        bool tags_hstore = true;
-
-        /**
-         * Import metadata of OSM objects into the database.
-         * This increase the size of the database a lot.
-         */
-        osmium::metadata_options metadata = osmium::metadata_options{"none"};
-
-        /**
-         * Create tables and columsn necessary for updates.
-         */
-        bool updateable = true;
+    enum class ColumnType : char {
+        NONE = 0,
+        SMALLINT = 1,
+        INT = 2,
+        BIGINT = 3,
+        BIGINT_ARRAY = 4,
+        REAL = 5,
+        CHAR = 6,
+        CHAR_ARRAY = 7,
+        TEXT = 8,
+        TEXT_ARRAY = 9,
+        GEOMETRY = 100,
+        POINT = 101,
+        MULTIPOINT = 102,
+        LINESTRING = 103,
+        MULTILINESTRING = 104,
+        POLYGON = 105,
+        MULTIPOLYGON = 106,
+        GEOMETRYCOLLECTION = 107,
+        HSTORE = 108
     };
 
-    typedef std::pair<const std::string, const std::string> Column;
-    typedef std::vector<Column> ColumnsVector;
+    enum class ColumnClass : char {
+        NONE = 0,
+        TAGS_OTHER = 1,
+        TAG = 2,
+        OSM_ID = 3,
+        VERSION = 4,
+        UID = 5,
+        USERNAME = 6,
+        CHANGESET = 7,
+        TIMESTAMP = 8,
+        GEOMETRY = 9,
+        WAY_NODES = 10,
+        MEMBER_IDS = 11,
+        MEMBER_TYPES = 12,
+        MEMBER_ROLES = 13,
+        GEOMETRY_MULTIPOINT = 14,
+        GEOMETRY_MULTILINESTRING = 15
+    };
+
+    inline std::string column_type_to_str(const ColumnType c, const int epsg = 0) {
+        switch (c) {
+        case ColumnType::SMALLINT:
+            return "smallint";
+        case ColumnType::INT:
+            return "int";
+        case ColumnType::BIGINT:
+            return "bigint";
+        case ColumnType::BIGINT_ARRAY:
+            return "bigint[]";
+        case ColumnType::REAL:
+            return "real";
+        case ColumnType::CHAR:
+            return "char(1)";
+        case ColumnType::CHAR_ARRAY:
+            return "char(1)[]";
+        case ColumnType::TEXT:
+            return "text";
+        case ColumnType::TEXT_ARRAY:
+            return "text[]";
+        case ColumnType::POINT:
+            if (epsg != 0) {
+                return "geometry(Point)";
+            }
+            return "geometry(Point, " + std::to_string(epsg) + ")";
+        case ColumnType::MULTIPOINT:
+            if (epsg != 0) {
+                return "geometry(MultiPoint)";
+            }
+            return "geometry(PMultioint, " + std::to_string(epsg) + ")";
+        case ColumnType::LINESTRING:
+            if (epsg != 0) {
+                return "geometry(LineString)";
+            }
+            return "geometry(LineString, " + std::to_string(epsg) + ")";
+        case ColumnType::MULTILINESTRING:
+            if (epsg != 0) {
+                return "geometry(MultiLineString)";
+            }
+            return "geometry(MultiLineString, " + std::to_string(epsg) + ")";
+        case ColumnType::POLYGON:
+            if (epsg != 0) {
+                return "geometry(Polygon)";
+            }
+            return "geometry(Polygon, " + std::to_string(epsg) + ")";
+        case ColumnType::MULTIPOLYGON:
+            if (epsg != 0) {
+                return "geometry(MultiPolygon)";
+            }
+            return "geometry(MultiPolygon, " + std::to_string(epsg) + ")";
+        case ColumnType::GEOMETRY:
+            if (epsg != 0) {
+                return "geometry(Geometry)";
+            }
+            return "geometry(Geometry, " + std::to_string(epsg) + ")";
+        case ColumnType::GEOMETRYCOLLECTION:
+            if (epsg != 0) {
+                return "geometry(GeometryCollection)";
+            }
+            return "geometry(GeometryCollection, " + std::to_string(epsg) + ")";
+        case ColumnType::HSTORE:
+            return "hstore";
+        default:
+            return "";
+        }
+    }
+
+
+    class Column {
+        std::string m_name;
+        ColumnType m_type;
+        int m_epsg;
+        ColumnClass m_column_class;
+
+    public:
+
+        Column(std::string name, ColumnType type, ColumnClass column_class) :
+            m_name(name),
+            m_type(type),
+            m_epsg(0),
+            m_column_class(column_class) {
+        }
+
+        Column(std::string name, ColumnType type, int epsg, ColumnClass column_class) :
+            m_name(name),
+            m_type(type),
+            m_epsg(epsg),
+            m_column_class(column_class) {
+        }
+
+        Column(std::string name, ColumnType type, int epsg) :
+            m_name(name),
+            m_type(type),
+            m_epsg(epsg),
+            m_column_class(ColumnClass::GEOMETRY) {
+        }
+
+        const std::string pg_type() const {
+            return column_type_to_str(m_type, m_epsg);
+        }
+
+        const std::string& name() const {
+            return m_name;
+        }
+
+        ColumnType type() const {
+            return m_type;
+        }
+
+        int epsg() const {
+            return m_epsg;
+        }
+
+        bool tag_column() const {
+            return m_column_class == ColumnClass::TAG;
+        }
+
+        ColumnClass column_class() const {
+            return m_column_class;
+        }
+    };
+
+    inline int compare_string_charptr(const std::string& lhs, const char* rhs) {
+        return lhs.compare(rhs) < 0;
+    }
+
+    inline int compare_strings(const std::string& lhs, const std::string& rhs) {
+        return lhs.compare(rhs) < 0;
+    }
+
+    using ColumnsVector = std::vector<Column>;
 
     using ColumnsIterator = ColumnsVector::iterator;
+    using ColumnsConstIterator = ColumnsVector::const_iterator;
 
     /**
      * \brief This class holds the names and types of the columns of a database table.
@@ -78,85 +227,140 @@ namespace postgres_drivers {
     class Columns {
     private:
         ColumnsVector m_columns;
+        osmium::TagsFilter m_tags_filter;
+        osmium::TagsFilter m_drop_filter;
+        osmium::TagsFilter m_nocolumn_filter;
         TableType m_type;
+
+        void add_hstore_column(Config& config, TableType type) {
+            if (config.tags_hstore && type != TableType::UNTAGGED_POINT) {
+                m_columns.emplace_back("tags", ColumnType::HSTORE, ColumnClass::TAGS_OTHER);
+            }
+        }
 
     public:
         Columns() = delete;
 
         Columns(Config& config, TableType type):
                 m_columns(),
-                m_type(type) {
-            m_columns.push_back(std::make_pair("osm_id", "bigint"));
-            if (config.tags_hstore && type != TableType::UNTAGGED_POINT) {
-                m_columns.push_back(std::make_pair("tags", "hstore"));
-            }
+                m_tags_filter(false),
+                m_drop_filter(false),
+                m_nocolumn_filter(false),
+                m_type(type)/*,
+                m_tags()*/ {
+            init(config, type);
+            add_hstore_column(config, type);
+        }
+
+        void init(Config& config, TableType type) {
+            m_columns.emplace_back("osm_id", ColumnType::BIGINT, ColumnClass::OSM_ID);
             if (config.metadata.user()) {
-                m_columns.push_back(std::make_pair("osm_user", "text"));
+                m_columns.emplace_back("osm_user", ColumnType::TEXT, ColumnClass::USERNAME);
             }
             if (config.metadata.uid()) {
-                m_columns.push_back(std::make_pair("osm_uid", "bigint"));
+                m_columns.emplace_back("osm_uid", ColumnType::BIGINT, ColumnClass::UID);
             }
             if (config.metadata.version()) {
-                m_columns.push_back(std::make_pair("osm_version", "integer"));
+                m_columns.emplace_back("osm_version", ColumnType::INT, ColumnClass::VERSION);
             }
             if (config.metadata.timestamp()) {
-                m_columns.push_back(std::make_pair("osm_lastmodified", "char(23)"));
+                m_columns.emplace_back("osm_lastmodified", ColumnType::TEXT, ColumnClass::TIMESTAMP);
             }
             if (config.metadata.changeset()) {
-                m_columns.push_back(std::make_pair("osm_changeset", "bigint"));
+                m_columns.emplace_back("osm_changeset", ColumnType::BIGINT, ColumnClass::CHANGESET);
             }
             switch (type) {
             case TableType::POINT :
-                m_columns.push_back(std::make_pair("geom", "geometry(Point,4326)"));
+                m_columns.emplace_back("geom", ColumnType::POINT, 4326);
                 break;
             case TableType::UNTAGGED_POINT :
-                m_columns.push_back(std::make_pair("geom", "geometry(Point,4326)"));
+                m_columns.emplace_back("geom", ColumnType::POINT, 4326);
                 break;
             case TableType::WAYS_LINEAR :
-                m_columns.push_back(std::make_pair("geom", "geometry(LineString,4326)"));
+                m_columns.emplace_back("geom", ColumnType::LINESTRING, 4326);
                 if (config.updateable) {
-                    m_columns.push_back(std::make_pair("way_nodes", "bigint[]"));
+                    m_columns.emplace_back("way_nodes", ColumnType::BIGINT_ARRAY, ColumnClass::WAY_NODES);
                 }
                 break;
             case TableType::WAYS_POLYGON :
-                m_columns.push_back(std::make_pair("geom", "geometry(MultiPolygon,4326)"));
+                m_columns.emplace_back("geom", ColumnType::MULTIPOLYGON, 4326);
                 if (config.updateable) {
-                    m_columns.push_back(std::make_pair("way_nodes", "bigint[]"));
+                    m_columns.emplace_back("way_nodes", ColumnType::BIGINT_ARRAY, ColumnClass::WAY_NODES);
                 }
                 break;
             case TableType::RELATION_POLYGON :
-                m_columns.push_back(std::make_pair("geom", "geometry(MultiPolygon,4326)"));
+                m_columns.emplace_back("geom", ColumnType::MULTIPOLYGON, 4326);
 //                if (config.updateable) {
-//                    m_columns.push_back(std::make_pair("member_ids", "bigint[]"));
-//                    m_columns.push_back(std::make_pair("member_types", "char[]"));
+//                    m_columns.emplace_back("member_ids", ColumnType::BIGINT_ARRAY);
+//                    m_columns.emplace_back("member_types", ColumnType::CHAR_ARRAY);
 //                }
                 break;
             case TableType::RELATION_OTHER :
-                m_columns.push_back(std::make_pair("geom_points", "geometry(MultiPoint,4326)"));
-                m_columns.push_back(std::make_pair("geom_lines", "geometry(MultiLineString,4326)"));
-                m_columns.push_back(std::make_pair("member_ids", "bigint[]"));
-                m_columns.push_back(std::make_pair("member_types", "char[]"));
-                m_columns.push_back(std::make_pair("member_roles", "text[]"));
+                m_columns.emplace_back("geom_points", ColumnType::MULTIPOINT, 4326, ColumnClass::GEOMETRY_MULTIPOINT);
+                m_columns.emplace_back("geom_lines", ColumnType::MULTILINESTRING, 4326, ColumnClass::GEOMETRY_MULTILINESTRING);
+                m_columns.emplace_back("member_ids", ColumnType::BIGINT_ARRAY, ColumnClass::MEMBER_IDS);
+                m_columns.emplace_back("member_types", ColumnType::CHAR_ARRAY, ColumnClass::MEMBER_TYPES);
+                m_columns.emplace_back("member_roles", ColumnType::TEXT_ARRAY, ColumnClass::MEMBER_ROLES);
                 break;
             case TableType::AREA :
-                m_columns.push_back(std::make_pair("geom", "geometry(MultiPolygon,4326)"));
+                m_columns.emplace_back("geom", ColumnType::MULTIPOLYGON, 4326);
             }
         }
 
-        Columns(Config& config, ColumnsVector& additional_columns, TableType type) :
-            Columns::Columns(config, type) {
+        Columns(Config& config, ColumnsVector& additional_columns, osmium::TagsFilter drop_filter,
+                std::vector<std::string>& nocolumn_keys, TableType type) :
+            m_columns(),
+            m_tags_filter(false),
+            m_drop_filter(drop_filter),
+            m_nocolumn_filter(),
+            m_type(type)/*,
+            m_tags()*/ {
+            init(config, type);
             for (Column& col : additional_columns) {
                 m_columns.push_back(col);
+                if (col.tag_column()) {
+                    m_tags_filter.add_rule(true, col.name());
+                }
             }
+            for (auto& k : nocolumn_keys) {
+                m_tags_filter.add_rule(true, k);
+            }
+            add_hstore_column(config, type);
         }
 
-        //TODO add method which reads additional columns config from file and returns an instance of Columns
+        ColumnsConstIterator cbegin() const {
+            return m_columns.begin();
+        }
+
+        ColumnsConstIterator cend() const {
+            return m_columns.end();
+        }
+
+        const Column& front() const {
+            return m_columns.front();
+        }
+
+        const Column& back() const {
+            return m_columns.back();
+        }
+
+        const Column& at(size_t n) const {
+            return m_columns.at(n);
+        }
 
         ColumnsIterator begin() {
             return m_columns.begin();
         }
 
         ColumnsIterator end() {
+            return m_columns.end();
+        }
+
+        ColumnsConstIterator begin() const {
+            return m_columns.begin();
+        }
+
+        ColumnsConstIterator end() const {
             return m_columns.end();
         }
 
@@ -175,30 +379,15 @@ namespace postgres_drivers {
         /**
          * \brief Get number of columns of this table.
          */
-        int size() {
+        size_t size() const {
             return m_columns.size();
         }
 
         /**
-         * \brief Get name of n-th (0 is first) column.
-         *
-         * \param n column index
-         *
-         * \returns column name
+         * \brief Get number of columns of this table.
          */
-        const std::string& column_name_at(size_t n) {
-            return m_columns.at(n).first;
-        }
-
-        /**
-         * \brief Get type of n-th (0 is first) column.
-         *
-         * \param n column index
-         *
-         * \returns column type
-         */
-        const std::string& column_type_at(size_t n) {
-            return m_columns.at(n).second;
+        size_t size() {
+            return m_columns.size();
         }
 
         /**
@@ -206,6 +395,14 @@ namespace postgres_drivers {
          */
         TableType get_type() {
             return m_type;
+        }
+
+        const osmium::TagsFilter& filter() const {
+            return m_tags_filter;
+        }
+
+        const osmium::TagsFilter& drop_filter() const {
+            return m_drop_filter;
         }
     };
 }
