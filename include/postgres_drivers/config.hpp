@@ -33,9 +33,14 @@ namespace postgres_drivers {
         osmium::metadata_options metadata = osmium::metadata_options{"none"};
 
         /**
-         * Create tables and columsn necessary for updates.
+         * Create tables and columns necessary for updates.
          */
         bool updateable = true;
+
+        /**
+         * Create table of nodes without tags.
+         */
+        bool untagged_nodes = false;
     };
 }
 

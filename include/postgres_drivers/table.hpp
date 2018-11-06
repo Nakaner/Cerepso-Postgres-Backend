@@ -69,14 +69,51 @@ namespace postgres_drivers {
          */
         void create_prepared_statements() {
             // create delete statement
-            std::string query = (boost::format("DELETE FROM %1% WHERE osm_id = $1") % m_name).str();
-            create_prepared_statement("delete_statement", query, 1);
-            if (m_columns.get_type() == TableType::POINT || m_columns.get_type() == TableType::UNTAGGED_POINT) {
+            std::string query;
+            if (m_columns.get_type() != TableType::NODE_WAYS && m_columns.get_type() != TableType::RELATION_MEMBER_NODES
+                    && m_columns.get_type() != TableType::RELATION_MEMBER_WAYS) {
+                query= (boost::format("DELETE FROM %1% WHERE osm_id = $1") % m_name).str();
+                create_prepared_statement("delete_statement", query, 1);
+            }
+            if (m_columns.get_type() == TableType::POINT) {
                 query = (boost::format("SELECT ST_X(geom), ST_Y(geom) FROM %1% WHERE osm_id = $1") % m_name).str();
-                create_prepared_statement("get_point", query, 1);
+                create_prepared_statement("get_location_from_point_table", query, 1);
+            } else if (m_columns.get_type() == TableType::UNTAGGED_POINT) {
+                query = (boost::format("SELECT x, y FROM %1% WHERE osm_id = $1") % m_name).str();
+                create_prepared_statement("get_location_from_untagged_nodes_table", query, 1);
             } else if (m_columns.get_type() == TableType::WAYS_LINEAR) {
                 query = (boost::format("SELECT geom FROM %1% WHERE osm_id = $1") % m_name).str();
                 create_prepared_statement("get_linestring", query, 1);
+                query = (boost::format("UPDATE %1% SET geom = $1 WHERE osm_id = $2") % m_name).str();
+                create_prepared_statement("update_geometry", query, 2);
+            } else if (m_columns.get_type() == TableType::NODE_WAYS) {
+                query = (boost::format("SELECT way_id FROM %1% WHERE node_id = $1") % m_name).str();
+                create_prepared_statement("get_way_ids", query, 1);
+                query = (boost::format("SELECT node_id, position FROM %1% WHERE way_id = $1") % m_name).str();
+                create_prepared_statement("get_nodes", query, 1);
+                query = (boost::format("DELETE FROM %1% WHERE way_id = $1") % m_name).str();
+                create_prepared_statement("delete_way_node_list", query, 1);
+            } else if (m_columns.get_type() == TableType::RELATION_MEMBER_NODES) {
+                query = (boost::format("SELECT relation_id FROM %1% WHERE node_id = $1") % m_name).str();
+                create_prepared_statement("get_relation_ids_by_node", query, 1);
+                query = (boost::format("DELETE FROM %1% WHERE relation_id = $1") % m_name).str();
+                create_prepared_statement("delete_relation_member_nodes", query, 1);
+                query= (boost::format("DELETE FROM %1% WHERE node_id = $1") % m_name).str();
+                create_prepared_statement("delete_statement", query, 1);
+            } else if (m_columns.get_type() == TableType::RELATION_MEMBER_WAYS) {
+                query = (boost::format("SELECT relation_id FROM %1% WHERE way_id = $1") % m_name).str();
+                create_prepared_statement("get_relation_ids_by_way", query, 1);
+                query = (boost::format("DELETE FROM %1% WHERE relation_id = $1") % m_name).str();
+                create_prepared_statement("delete_relation_member_ways", query, 1);
+                query= (boost::format("DELETE FROM %1% WHERE way_id = $1") % m_name).str();
+                create_prepared_statement("delete_statement", query, 1);
+            } else if (m_columns.get_type() == TableType::RELATION_OTHER) {
+                query = (boost::format("SELECT member_types FROM %1% WHERE osm_id = $1") % m_name).str();
+                create_prepared_statement("get_member_types_by_relation_id", query, 1);
+                query = (boost::format("SELECT member_ids FROM %1% WHERE osm_id = $1") % m_name).str();
+                create_prepared_statement("get_member_ids_by_relation_id", query, 1);
+                query = (boost::format("UPDATE %1% SET geom_points = $1, geom_lines = $2 WHERE osm_id = $3") % m_name).str();
+                create_prepared_statement("update_relation_member_geometry", query, 3);
             }
         }
 
@@ -183,9 +220,7 @@ namespace postgres_drivers {
          * \throws std::runtime_error
          */
         void send_line(const std::string& line) {
-            if (!m_database_connection) {
-                return;
-            }
+            assert(m_database_connection);
             if (!m_copy_mode) {
                 throw std::runtime_error((boost::format("Insertion via COPY \"%1%\" failed: You are not in COPY mode!\n") % line).str());
             }
@@ -212,9 +247,7 @@ namespace postgres_drivers {
          * \throws std::runtime_error
          */
         void start_copy() {
-            if (!m_database_connection) {
-                std::runtime_error("No database connection.");
-            }
+            assert(m_database_connection);
             std::string copy_command = "COPY ";
             copy_command.append(m_name);
             copy_command.append(" (");
@@ -238,9 +271,7 @@ namespace postgres_drivers {
          * Additionally, t method sets #m_copy_mode to `false`.
          */
         void end_copy() {
-            if (!m_database_connection) {
-                return;
-            }
+            assert(m_database_connection);
             if (PQputCopyEnd(m_database_connection, nullptr) != 1) {
                 throw std::runtime_error(PQerrorMessage(m_database_connection));
             }

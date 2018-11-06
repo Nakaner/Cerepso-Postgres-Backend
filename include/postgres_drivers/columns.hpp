@@ -25,6 +25,8 @@ namespace postgres_drivers {
      * follow OGC Simple Feature Specification. For example, nod
      */
     enum class TableType : char {
+        /// other
+        OTHER = 0,
         /// nodes with tags
         POINT = 1,
         /// nodes without tags
@@ -38,7 +40,13 @@ namespace postgres_drivers {
         /// relations
         RELATION_OTHER = 6,
         /// areas (ways and multipolygon/boundary relations)
-        AREA = 7
+        AREA = 7,
+        /// mapping of nodes to ways using them
+        NODE_WAYS = 8,
+        /// mapping of nodes to relations using them
+        RELATION_MEMBER_NODES = 9,
+        /// mapping of ways to relations using them
+        RELATION_MEMBER_WAYS = 10
     };
 
     enum class ColumnType : char {
@@ -52,6 +60,7 @@ namespace postgres_drivers {
         CHAR_ARRAY = 7,
         TEXT = 8,
         TEXT_ARRAY = 9,
+        HSTORE = 50,
         GEOMETRY = 100,
         POINT = 101,
         MULTIPOINT = 102,
@@ -59,8 +68,7 @@ namespace postgres_drivers {
         MULTILINESTRING = 104,
         POLYGON = 105,
         MULTIPOLYGON = 106,
-        GEOMETRYCOLLECTION = 107,
-        HSTORE = 108
+        GEOMETRYCOLLECTION = 107
     };
 
     enum class ColumnClass : char {
@@ -79,7 +87,21 @@ namespace postgres_drivers {
         MEMBER_TYPES = 12,
         MEMBER_ROLES = 13,
         GEOMETRY_MULTIPOINT = 14,
-        GEOMETRY_MULTILINESTRING = 15
+        GEOMETRY_MULTILINESTRING = 15,
+        OTHER = 16,
+        INTERPOLATION_HOUSENUMBER = 17,
+        INTERPOLATION_STREET = 18,
+        INTERPOLATION_PLACE = 19,
+        INTERPOLATION_SUBURB = 20,
+        INTERPOLATION_POSTCODE = 21,
+        INTERPOLATION_CITY = 22,
+        INTERPOLATION_PROVINCE = 23,
+        INTERPOLATION_STATE = 24,
+        INTERPOLATION_COUNTRY = 25,
+        NODE_ID = 26,
+        WAY_ID = 27,
+        LONGITUDE = 28,
+        LATITUDE = 29
     };
 
     inline std::string column_type_to_str(const ColumnType c, const int epsg = 0) {
@@ -249,11 +271,17 @@ namespace postgres_drivers {
                 m_type(type)/*,
                 m_tags()*/ {
             init(config, type);
-            add_hstore_column(config, type);
+            if (type != TableType::NODE_WAYS && type != TableType::RELATION_MEMBER_NODES
+                    && type != TableType::RELATION_MEMBER_WAYS && type != TableType::OTHER) {
+                add_hstore_column(config, type);
+            }
         }
 
         void init(Config& config, TableType type) {
-            m_columns.emplace_back("osm_id", ColumnType::BIGINT, ColumnClass::OSM_ID);
+            if (type != TableType::NODE_WAYS && type != TableType::RELATION_MEMBER_NODES
+                    && type != TableType::RELATION_MEMBER_WAYS) {
+                m_columns.emplace_back("osm_id", ColumnType::BIGINT, ColumnClass::OSM_ID);
+            }
             if (config.metadata.user()) {
                 m_columns.emplace_back("osm_user", ColumnType::TEXT, ColumnClass::USERNAME);
             }
@@ -274,7 +302,8 @@ namespace postgres_drivers {
                 m_columns.emplace_back("geom", ColumnType::POINT, 4326);
                 break;
             case TableType::UNTAGGED_POINT :
-                m_columns.emplace_back("geom", ColumnType::POINT, 4326);
+                m_columns.emplace_back("x", ColumnType::INT, ColumnClass::LONGITUDE);
+                m_columns.emplace_back("y", ColumnType::INT, ColumnClass::LATITUDE);
                 break;
             case TableType::WAYS_LINEAR :
                 m_columns.emplace_back("geom", ColumnType::LINESTRING, 4326);
@@ -304,6 +333,22 @@ namespace postgres_drivers {
                 break;
             case TableType::AREA :
                 m_columns.emplace_back("geom", ColumnType::MULTIPOLYGON, 4326);
+                break;
+            case TableType::NODE_WAYS :
+                m_columns.emplace_back("way_id", ColumnType::BIGINT, ColumnClass::OSM_ID);
+                m_columns.emplace_back("node_id", ColumnType::BIGINT, ColumnClass::NODE_ID);
+                m_columns.emplace_back("position", ColumnType::SMALLINT, ColumnClass::OTHER);
+                break;
+            case TableType::RELATION_MEMBER_NODES :
+                m_columns.emplace_back("node_id", ColumnType::BIGINT, ColumnClass::NODE_ID);
+                m_columns.emplace_back("relation_id", ColumnType::BIGINT, ColumnClass::OSM_ID);
+                break;
+            case TableType::RELATION_MEMBER_WAYS :
+                m_columns.emplace_back("way_id", ColumnType::BIGINT, ColumnClass::WAY_ID);
+                m_columns.emplace_back("relation_id", ColumnType::BIGINT, ColumnClass::OSM_ID);
+                break;
+            case TableType::OTHER :
+                break;
             }
         }
 
@@ -325,7 +370,40 @@ namespace postgres_drivers {
             for (auto& k : nocolumn_keys) {
                 m_tags_filter.add_rule(true, k);
             }
-            add_hstore_column(config, type);
+            if (type != TableType::NODE_WAYS && type != TableType::OTHER) {
+                add_hstore_column(config, type);
+            }
+        }
+
+        Columns(Config& config, ColumnsVector&& additional_columns) :
+            m_columns(),
+            m_tags_filter(false),
+            m_drop_filter(false),
+            m_nocolumn_filter(),
+            m_type(TableType::OTHER) {
+            for (Column& col : additional_columns) {
+                m_columns.push_back(col);
+                if (col.tag_column()) {
+                    m_tags_filter.add_rule(true, col.name());
+                }
+            }
+        }
+
+        static ColumnsVector addr_interpolation_columns() {
+            return ColumnsVector{
+                // We call it osm_id to make the application of diff updates work without modifications.
+                Column("osm_id", ColumnType::INT, ColumnClass::OSM_ID),
+                Column("housenumber", ColumnType::TEXT, ColumnClass::INTERPOLATION_HOUSENUMBER),
+                Column("street", ColumnType::TEXT, ColumnClass::INTERPOLATION_STREET),
+                Column("place", ColumnType::TEXT, ColumnClass::INTERPOLATION_PLACE),
+                Column("suburb", ColumnType::TEXT, ColumnClass::INTERPOLATION_SUBURB),
+                Column("postcode", ColumnType::TEXT, ColumnClass::INTERPOLATION_POSTCODE),
+                Column("city", ColumnType::TEXT, ColumnClass::INTERPOLATION_CITY),
+                Column("province", ColumnType::TEXT, ColumnClass::INTERPOLATION_PROVINCE),
+                Column("state", ColumnType::TEXT, ColumnClass::INTERPOLATION_STATE),
+                Column("country", ColumnType::TEXT, ColumnClass::INTERPOLATION_COUNTRY),
+                Column("geom", ColumnType::POINT, ColumnClass::GEOMETRY)
+            };
         }
 
         ColumnsConstIterator cbegin() const {
