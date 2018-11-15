@@ -307,15 +307,9 @@ namespace postgres_drivers {
                 break;
             case TableType::WAYS_LINEAR :
                 m_columns.emplace_back("geom", ColumnType::LINESTRING, 4326);
-                if (config.updateable) {
-                    m_columns.emplace_back("way_nodes", ColumnType::BIGINT_ARRAY, ColumnClass::WAY_NODES);
-                }
                 break;
             case TableType::WAYS_POLYGON :
                 m_columns.emplace_back("geom", ColumnType::MULTIPOLYGON, 4326);
-                if (config.updateable) {
-                    m_columns.emplace_back("way_nodes", ColumnType::BIGINT_ARRAY, ColumnClass::WAY_NODES);
-                }
                 break;
             case TableType::RELATION_POLYGON :
                 m_columns.emplace_back("geom", ColumnType::MULTIPOLYGON, 4326);
