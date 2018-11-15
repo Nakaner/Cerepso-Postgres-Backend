@@ -271,6 +271,10 @@ namespace postgres_drivers {
          * Additionally, t method sets #m_copy_mode to `false`.
          */
         void end_copy() {
+            if (!m_copy_mode) {
+                // This allows us to call this method even if we are not in copy mode as a measure of safety.
+                return;
+            }
             assert(m_database_connection);
             if (PQputCopyEnd(m_database_connection, nullptr) != 1) {
                 throw std::runtime_error(PQerrorMessage(m_database_connection));
