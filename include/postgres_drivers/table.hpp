@@ -13,12 +13,9 @@
 #include "columns.hpp"
 #include <sstream>
 #include <osmium/osm/types.hpp>
-#include <geos/geom/Point.h>
 #include <string.h>
 #include <boost/iostreams/device/file.hpp>
 #include <boost/iostreams/stream.hpp>
-#include <geos/io/WKBReader.h>
-#include <geos/geom/Coordinate.h>
 
 namespace postgres_drivers {
 

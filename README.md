@@ -9,7 +9,6 @@ Dependencies
 ============
 
 * libpq-dev (libpq)
-* libgeos++-dev (GEOS library and its C++ API)
 * libboost-dev (format.hpp)
 * C++11 capable compiler.
 
