@@ -358,7 +358,7 @@ namespace postgres_drivers {
                 add_hstore_column(config);
                 break;
             case TableType::AREA :
-                m_columns.emplace_back("geom", ColumnType::MULTIPOLYGON, 4326);
+                m_columns.emplace_back("geom", ColumnType::GEOMETRY, 4326);
                 add_hstore_column(config);
                 break;
             case TableType::NODE_WAYS :
